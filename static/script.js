@@ -70,11 +70,16 @@ function createNoteCard(note) {
 async function createNote() {
     const title = document.getElementById('noteTitle').value.trim();
     const content = document.getElementById('noteContent').value.trim();
+    const submitBtn = document.querySelector('#noteForm button[type="submit"]');
     
     if (!title || !content) {
-        alert('Please fill in both title and content');
+        showMessage('Please fill in both title and content', 'error');
         return;
     }
+    
+    // Disable button and show loading state
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Creating...';
     
     try {
         const response = await fetch(`${API_URL}/notes`, {
@@ -89,16 +94,31 @@ async function createNote() {
             throw new Error('Failed to create note');
         }
         
+        const newNote = await response.json();
+        
         // Clear form
         document.getElementById('noteTitle').value = '';
         document.getElementById('noteContent').value = '';
         
+        // Show success message
+        showMessage('✓ Note created successfully!', 'success');
+        
         // Reload notes
         await loadNotes();
         
+        // Scroll to notes section to show the new note
+        document.getElementById('notesContainer').scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'nearest' 
+        });
+        
     } catch (error) {
         console.error('Error creating note:', error);
-        alert('Failed to create note. Please try again.');
+        showMessage('Failed to create note. Please try again.', 'error');
+    } finally {
+        // Re-enable button
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Create Note';
     }
 }
 
@@ -131,5 +151,29 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// Show message to user
+function showMessage(message, type = 'info') {
+    // Remove any existing message
+    const existingMessage = document.querySelector('.message-banner');
+    if (existingMessage) {
+        existingMessage.remove();
+    }
+    
+    // Create message banner
+    const banner = document.createElement('div');
+    banner.className = `message-banner ${type}`;
+    banner.textContent = message;
+    
+    // Insert at top of container
+    const container = document.querySelector('.container');
+    container.insertBefore(banner, container.firstChild);
+    
+    // Auto-remove after 3 seconds
+    setTimeout(() => {
+        banner.style.opacity = '0';
+        setTimeout(() => banner.remove(), 300);
+    }, 3000);
 }
 
