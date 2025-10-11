@@ -1,12 +1,13 @@
 // Firebase Configuration
-// You'll need to replace these with your Firebase project config
+// Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "YOUR_ACTUAL_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyC45ZBtynCIoH2tBe-QKewVjyuLsBt-jVY",
+  authDomain: "notes-web-app-8bf56.firebaseapp.com",
+  projectId: "notes-web-app-8bf56",
+  storageBucket: "notes-web-app-8bf56.firebasestorage.app",
+  messagingSenderId: "76111886985",
+  appId: "1:76111886985:web:d4af108bce5a6c8a59e458",
+  measurementId: "G-9LYMFH5C9M"
 };
 
 // API base URL
