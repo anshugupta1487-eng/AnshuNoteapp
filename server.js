@@ -14,15 +14,17 @@ let notesData = {
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static('static'));
 
-// Logging middleware
+// Logging middleware (before routes)
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
   next();
 });
 
-// Routes
+// Serve static files with explicit path
+app.use('/static', express.static(path.join(__dirname, 'static')));
+
+// API Routes
 
 // Health check
 app.get('/health', (req, res) => {
@@ -159,9 +161,15 @@ app.delete('/api/notes/:id', (req, res) => {
   }
 });
 
-// Serve index.html for root path
+// Serve index.html for root path (must be after static and API routes)
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'static', 'index.html'));
+});
+
+// 404 handler for unmatched routes
+app.use((req, res) => {
+  console.log('404 - Not found:', req.url);
+  res.status(404).json({ error: 'Not found' });
 });
 
 // Error handling middleware
@@ -175,4 +183,5 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Notes app is running on http://localhost:${PORT}`);
   console.log(`📝 API available at http://localhost:${PORT}/api/notes`);
   console.log(`🗄️  Using in-memory storage (data will reset on server restart)`);
+  console.log(`📁 Static files served from: ${path.join(__dirname, 'static')}`);
 });
