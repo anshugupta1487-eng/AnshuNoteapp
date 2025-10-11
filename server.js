@@ -1,79 +1,48 @@
 const express = require('express');
 const path = require('path');
-const fs = require('fs');
 const cors = require('cors');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Data file path
-const DATA_FILE = path.join(__dirname, 'data', 'notes.json');
+// In-memory data store (more reliable for cloud deployments)
+let notesData = {
+  notes: [],
+  nextId: 1
+};
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static('static'));
 
-// Initialize data directory and file
-function initializeDataStore() {
-  const dataDir = path.join(__dirname, 'data');
-  
-  // Create data directory if it doesn't exist
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-  
-  // Create notes file if it doesn't exist
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ notes: [], nextId: 1 }, null, 2));
-  }
-}
-
-// Read data from file
-function readData() {
-  try {
-    const data = fs.readFileSync(DATA_FILE, 'utf8');
-    return JSON.parse(data);
-  } catch (error) {
-    console.error('Error reading data:', error);
-    return { notes: [], nextId: 1 };
-  }
-}
-
-// Write data to file
-function writeData(data) {
-  try {
-    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-    return true;
-  } catch (error) {
-    console.error('Error writing data:', error);
-    return false;
-  }
-}
-
-// Initialize on startup
-initializeDataStore();
+// Logging middleware
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+  next();
+});
 
 // Routes
 
 // Health check
 app.get('/health', (req, res) => {
-  res.json({ status: 'healthy' });
+  res.json({ status: 'healthy', notesCount: notesData.notes.length });
 });
 
 // Get all notes
 app.get('/api/notes', (req, res) => {
   try {
-    const data = readData();
+    console.log('GET /api/notes - Fetching all notes');
     const skip = parseInt(req.query.skip) || 0;
     const limit = parseInt(req.query.limit) || 100;
     
     // Sort by created_at descending and apply pagination
-    const sortedNotes = data.notes.sort((a, b) => 
+    const sortedNotes = [...notesData.notes].sort((a, b) => 
       new Date(b.created_at) - new Date(a.created_at)
     );
     const paginatedNotes = sortedNotes.slice(skip, skip + limit);
     
+    console.log(`Returning ${paginatedNotes.length} notes`);
     res.json(paginatedNotes);
   } catch (error) {
     console.error('Error fetching notes:', error);
@@ -84,9 +53,9 @@ app.get('/api/notes', (req, res) => {
 // Get a single note
 app.get('/api/notes/:id', (req, res) => {
   try {
-    const data = readData();
     const noteId = parseInt(req.params.id);
-    const note = data.notes.find(n => n.id === noteId);
+    console.log(`GET /api/notes/${noteId}`);
+    const note = notesData.notes.find(n => n.id === noteId);
     
     if (!note) {
       return res.status(404).json({ error: 'Note not found' });
@@ -103,6 +72,7 @@ app.get('/api/notes/:id', (req, res) => {
 app.post('/api/notes', (req, res) => {
   try {
     const { title, content } = req.body;
+    console.log('POST /api/notes - Creating note:', { title, content: content?.substring(0, 50) });
     
     if (!title || !content) {
       return res.status(400).json({ error: 'Title and content are required' });
@@ -112,24 +82,20 @@ app.post('/api/notes', (req, res) => {
       return res.status(400).json({ error: 'Title must be 200 characters or less' });
     }
     
-    const data = readData();
     const now = new Date().toISOString();
     
     const newNote = {
-      id: data.nextId,
+      id: notesData.nextId,
       title: title.trim(),
       content: content.trim(),
       created_at: now,
       updated_at: now
     };
     
-    data.notes.push(newNote);
-    data.nextId += 1;
+    notesData.notes.push(newNote);
+    notesData.nextId += 1;
     
-    if (!writeData(data)) {
-      return res.status(500).json({ error: 'Failed to save note' });
-    }
-    
+    console.log(`Note created with ID ${newNote.id}. Total notes: ${notesData.notes.length}`);
     res.status(201).json(newNote);
   } catch (error) {
     console.error('Error creating note:', error);
@@ -142,14 +108,14 @@ app.put('/api/notes/:id', (req, res) => {
   try {
     const { title, content } = req.body;
     const noteId = parseInt(req.params.id);
-    const data = readData();
+    console.log(`PUT /api/notes/${noteId}`);
     
-    const noteIndex = data.notes.findIndex(n => n.id === noteId);
+    const noteIndex = notesData.notes.findIndex(n => n.id === noteId);
     if (noteIndex === -1) {
       return res.status(404).json({ error: 'Note not found' });
     }
     
-    const note = data.notes[noteIndex];
+    const note = notesData.notes[noteIndex];
     
     if (title !== undefined) {
       if (title.length > 200) {
@@ -164,10 +130,7 @@ app.put('/api/notes/:id', (req, res) => {
     
     note.updated_at = new Date().toISOString();
     
-    if (!writeData(data)) {
-      return res.status(500).json({ error: 'Failed to update note' });
-    }
-    
+    console.log(`Note ${noteId} updated`);
     res.json(note);
   } catch (error) {
     console.error('Error updating note:', error);
@@ -179,18 +142,15 @@ app.put('/api/notes/:id', (req, res) => {
 app.delete('/api/notes/:id', (req, res) => {
   try {
     const noteId = parseInt(req.params.id);
-    const data = readData();
+    console.log(`DELETE /api/notes/${noteId}`);
     
-    const noteIndex = data.notes.findIndex(n => n.id === noteId);
+    const noteIndex = notesData.notes.findIndex(n => n.id === noteId);
     if (noteIndex === -1) {
       return res.status(404).json({ error: 'Note not found' });
     }
     
-    data.notes.splice(noteIndex, 1);
-    
-    if (!writeData(data)) {
-      return res.status(500).json({ error: 'Failed to delete note' });
-    }
+    notesData.notes.splice(noteIndex, 1);
+    console.log(`Note ${noteId} deleted. Total notes: ${notesData.notes.length}`);
     
     res.status(204).send();
   } catch (error) {
@@ -204,8 +164,15 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'static', 'index.html'));
 });
 
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ error: 'Internal server error' });
+});
+
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Notes app is running on http://localhost:${PORT}`);
   console.log(`📝 API available at http://localhost:${PORT}/api/notes`);
+  console.log(`🗄️  Using in-memory storage (data will reset on server restart)`);
 });

@@ -6,10 +6,6 @@ yarn-error.log*
 package-lock.json
 yarn.lock
 
-# Data storage
-data/
-*.json
-
 # Environment
 .env
 .env.local
