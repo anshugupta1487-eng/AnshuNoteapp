@@ -2,9 +2,30 @@ const express = require('express');
 const path = require('path');
 const cors = require('cors');
 const { createClient } = require('@supabase/supabase-js');
+const admin = require('firebase-admin');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Initialize Firebase Admin
+let firebaseInitialized = false;
+const firebaseConfig = process.env.FIREBASE_SERVICE_ACCOUNT;
+
+if (firebaseConfig) {
+  try {
+    const serviceAccount = JSON.parse(firebaseConfig);
+    admin.initializeApp({
+      credential: admin.credential.cert(serviceAccount)
+    });
+    firebaseInitialized = true;
+    console.log('✅ Firebase Admin initialized - authentication enabled');
+  } catch (error) {
+    console.error('❌ Failed to initialize Firebase Admin:', error.message);
+    console.log('⚠️  Running without authentication');
+  }
+} else {
+  console.log('⚠️  FIREBASE_SERVICE_ACCOUNT not set - running without authentication');
+}
 
 // Initialize Supabase client
 const supabaseUrl = process.env.SUPABASE_URL || '';
@@ -45,9 +66,40 @@ app.use((req, res, next) => {
 // Serve static files
 app.use('/static', express.static(path.join(__dirname, 'static')));
 
+// Authentication middleware
+async function authenticate(req, res, next) {
+  if (!firebaseInitialized) {
+    // Skip authentication if Firebase is not configured
+    req.user = { uid: 'anonymous', email: 'anonymous@example.com' };
+    return next();
+  }
+
+  const authHeader = req.headers.authorization;
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Unauthorized - No token provided' });
+  }
+
+  const token = authHeader.split('Bearer ')[1];
+
+  try {
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    req.user = {
+      uid: decodedToken.uid,
+      email: decodedToken.email,
+      name: decodedToken.name,
+      picture: decodedToken.picture
+    };
+    next();
+  } catch (error) {
+    console.error('Token verification failed:', error.message);
+    return res.status(401).json({ error: 'Unauthorized - Invalid token' });
+  }
+}
+
 // Routes
 
-// Health check
+// Health check (no auth required)
 app.get('/health', async (req, res) => {
   if (useDatabase) {
     try {
@@ -60,12 +112,14 @@ app.get('/health', async (req, res) => {
       res.json({ 
         status: 'healthy', 
         storage: 'database',
+        authentication: firebaseInitialized ? 'enabled' : 'disabled',
         notesCount: count 
       });
     } catch (error) {
       res.json({ 
         status: 'healthy', 
         storage: 'database',
+        authentication: firebaseInitialized ? 'enabled' : 'disabled',
         error: error.message 
       });
     }
@@ -73,23 +127,35 @@ app.get('/health', async (req, res) => {
     res.json({ 
       status: 'healthy', 
       storage: 'in-memory',
+      authentication: firebaseInitialized ? 'enabled' : 'disabled',
       notesCount: notesData.notes.length 
     });
   }
 });
 
-// Get all notes
-app.get('/api/notes', async (req, res) => {
+// Get current user info (requires auth)
+app.get('/api/user', authenticate, (req, res) => {
+  res.json({
+    uid: req.user.uid,
+    email: req.user.email,
+    name: req.user.name,
+    picture: req.user.picture
+  });
+});
+
+// Get all notes for authenticated user
+app.get('/api/notes', authenticate, async (req, res) => {
   try {
-    console.log('GET /api/notes - Fetching all notes');
+    console.log(`GET /api/notes - User: ${req.user.email}`);
     const skip = parseInt(req.query.skip) || 0;
     const limit = parseInt(req.query.limit) || 100;
     
     if (useDatabase) {
-      // Fetch from Supabase
+      // Fetch from Supabase filtered by user_id
       const { data, error } = await supabase
         .from('notes')
         .select('*')
+        .eq('user_id', req.user.uid)
         .order('created_at', { ascending: false })
         .range(skip, skip + limit - 1);
       
@@ -101,8 +167,9 @@ app.get('/api/notes', async (req, res) => {
       console.log(`Returning ${data.length} notes from database`);
       res.json(data);
     } else {
-      // Use in-memory storage
-      const sortedNotes = [...notesData.notes].sort((a, b) => 
+      // Use in-memory storage filtered by user_id
+      const userNotes = notesData.notes.filter(n => n.user_id === req.user.uid);
+      const sortedNotes = userNotes.sort((a, b) => 
         new Date(b.created_at) - new Date(a.created_at)
       );
       const paginatedNotes = sortedNotes.slice(skip, skip + limit);
@@ -116,17 +183,18 @@ app.get('/api/notes', async (req, res) => {
   }
 });
 
-// Get a single note
-app.get('/api/notes/:id', async (req, res) => {
+// Get a single note (requires auth and ownership)
+app.get('/api/notes/:id', authenticate, async (req, res) => {
   try {
     const noteId = parseInt(req.params.id);
-    console.log(`GET /api/notes/${noteId}`);
+    console.log(`GET /api/notes/${noteId} - User: ${req.user.email}`);
     
     if (useDatabase) {
       const { data, error } = await supabase
         .from('notes')
         .select('*')
         .eq('id', noteId)
+        .eq('user_id', req.user.uid)
         .single();
       
       if (error) {
@@ -138,7 +206,7 @@ app.get('/api/notes/:id', async (req, res) => {
       
       res.json(data);
     } else {
-      const note = notesData.notes.find(n => n.id === noteId);
+      const note = notesData.notes.find(n => n.id === noteId && n.user_id === req.user.uid);
       
       if (!note) {
         return res.status(404).json({ error: 'Note not found' });
@@ -152,11 +220,11 @@ app.get('/api/notes/:id', async (req, res) => {
   }
 });
 
-// Create a new note
-app.post('/api/notes', async (req, res) => {
+// Create a new note (requires auth)
+app.post('/api/notes', authenticate, async (req, res) => {
   try {
     const { title, content } = req.body;
-    console.log('POST /api/notes - Creating note:', { title, content: content?.substring(0, 50) });
+    console.log(`POST /api/notes - User: ${req.user.email}, Title: ${title}`);
     
     if (!title || !content) {
       return res.status(400).json({ error: 'Title and content are required' });
@@ -167,13 +235,15 @@ app.post('/api/notes', async (req, res) => {
     }
     
     if (useDatabase) {
-      // Insert into Supabase
+      // Insert into Supabase with user_id
       const { data, error } = await supabase
         .from('notes')
         .insert([
           { 
             title: title.trim(), 
-            content: content.trim() 
+            content: content.trim(),
+            user_id: req.user.uid,
+            user_email: req.user.email
           }
         ])
         .select()
@@ -184,7 +254,7 @@ app.post('/api/notes', async (req, res) => {
         throw error;
       }
       
-      console.log(`Note created with ID ${data.id} in database`);
+      console.log(`Note created with ID ${data.id} for user ${req.user.email}`);
       res.status(201).json(data);
     } else {
       // Use in-memory storage
@@ -194,6 +264,8 @@ app.post('/api/notes', async (req, res) => {
         id: notesData.nextId,
         title: title.trim(),
         content: content.trim(),
+        user_id: req.user.uid,
+        user_email: req.user.email,
         created_at: now,
         updated_at: now
       };
@@ -201,7 +273,7 @@ app.post('/api/notes', async (req, res) => {
       notesData.notes.push(newNote);
       notesData.nextId += 1;
       
-      console.log(`Note created with ID ${newNote.id} in memory. Total: ${notesData.notes.length}`);
+      console.log(`Note created with ID ${newNote.id} for user ${req.user.email}`);
       res.status(201).json(newNote);
     }
   } catch (error) {
@@ -210,19 +282,19 @@ app.post('/api/notes', async (req, res) => {
   }
 });
 
-// Update a note
-app.put('/api/notes/:id', async (req, res) => {
+// Update a note (requires auth and ownership)
+app.put('/api/notes/:id', authenticate, async (req, res) => {
   try {
     const { title, content } = req.body;
     const noteId = parseInt(req.params.id);
-    console.log(`PUT /api/notes/${noteId}`);
+    console.log(`PUT /api/notes/${noteId} - User: ${req.user.email}`);
     
     if (title && title.length > 200) {
       return res.status(400).json({ error: 'Title must be 200 characters or less' });
     }
     
     if (useDatabase) {
-      // Update in Supabase
+      // Update in Supabase (only if owned by user)
       const updateData = {};
       if (title !== undefined) updateData.title = title.trim();
       if (content !== undefined) updateData.content = content.trim();
@@ -232,23 +304,24 @@ app.put('/api/notes/:id', async (req, res) => {
         .from('notes')
         .update(updateData)
         .eq('id', noteId)
+        .eq('user_id', req.user.uid)
         .select()
         .single();
       
       if (error) {
         if (error.code === 'PGRST116') {
-          return res.status(404).json({ error: 'Note not found' });
+          return res.status(404).json({ error: 'Note not found or access denied' });
         }
         throw error;
       }
       
-      console.log(`Note ${noteId} updated in database`);
+      console.log(`Note ${noteId} updated by user ${req.user.email}`);
       res.json(data);
     } else {
       // Use in-memory storage
-      const noteIndex = notesData.notes.findIndex(n => n.id === noteId);
+      const noteIndex = notesData.notes.findIndex(n => n.id === noteId && n.user_id === req.user.uid);
       if (noteIndex === -1) {
-        return res.status(404).json({ error: 'Note not found' });
+        return res.status(404).json({ error: 'Note not found or access denied' });
       }
       
       const note = notesData.notes[noteIndex];
@@ -257,7 +330,7 @@ app.put('/api/notes/:id', async (req, res) => {
       if (content !== undefined) note.content = content.trim();
       note.updated_at = new Date().toISOString();
       
-      console.log(`Note ${noteId} updated in memory`);
+      console.log(`Note ${noteId} updated by user ${req.user.email}`);
       res.json(note);
     }
   } catch (error) {
@@ -266,33 +339,34 @@ app.put('/api/notes/:id', async (req, res) => {
   }
 });
 
-// Delete a note
-app.delete('/api/notes/:id', async (req, res) => {
+// Delete a note (requires auth and ownership)
+app.delete('/api/notes/:id', authenticate, async (req, res) => {
   try {
     const noteId = parseInt(req.params.id);
-    console.log(`DELETE /api/notes/${noteId}`);
+    console.log(`DELETE /api/notes/${noteId} - User: ${req.user.email}`);
     
     if (useDatabase) {
       const { error } = await supabase
         .from('notes')
         .delete()
-        .eq('id', noteId);
+        .eq('id', noteId)
+        .eq('user_id', req.user.uid);
       
       if (error) {
         console.error('Supabase delete error:', error);
         throw error;
       }
       
-      console.log(`Note ${noteId} deleted from database`);
+      console.log(`Note ${noteId} deleted by user ${req.user.email}`);
       res.status(204).send();
     } else {
-      const noteIndex = notesData.notes.findIndex(n => n.id === noteId);
+      const noteIndex = notesData.notes.findIndex(n => n.id === noteId && n.user_id === req.user.uid);
       if (noteIndex === -1) {
-        return res.status(404).json({ error: 'Note not found' });
+        return res.status(404).json({ error: 'Note not found or access denied' });
       }
       
       notesData.notes.splice(noteIndex, 1);
-      console.log(`Note ${noteId} deleted from memory. Total: ${notesData.notes.length}`);
+      console.log(`Note ${noteId} deleted by user ${req.user.email}`);
       
       res.status(204).send();
     }
@@ -323,6 +397,7 @@ app.use((err, req, res, next) => {
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Notes app is running on http://localhost:${PORT}`);
   console.log(`📝 API available at http://localhost:${PORT}/api/notes`);
+  console.log(`🔐 Authentication: ${firebaseInitialized ? 'Enabled (Firebase)' : 'Disabled'}`);
   console.log(`🗄️  Storage: ${useDatabase ? 'Supabase (PostgreSQL)' : 'In-memory (ephemeral)'}`);
   console.log(`📁 Static files served from: ${path.join(__dirname, 'static')}`);
 });
