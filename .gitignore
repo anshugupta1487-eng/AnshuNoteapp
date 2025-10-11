@@ -6,9 +6,9 @@ yarn-error.log*
 package-lock.json
 yarn.lock
 
-# Database
-*.db
-*.sqlite3
+# Data storage
+data/
+*.json
 
 # Environment
 .env

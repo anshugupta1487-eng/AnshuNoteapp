@@ -1,36 +1,58 @@
 const express = require('express');
 const path = require('path');
-const Database = require('better-sqlite3');
+const fs = require('fs');
 const cors = require('cors');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Data file path
+const DATA_FILE = path.join(__dirname, 'data', 'notes.json');
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static('static'));
 
-// Initialize SQLite database
-const db = new Database('notes.db');
+// Initialize data directory and file
+function initializeDataStore() {
+  const dataDir = path.join(__dirname, 'data');
+  
+  // Create data directory if it doesn't exist
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+  
+  // Create notes file if it doesn't exist
+  if (!fs.existsSync(DATA_FILE)) {
+    fs.writeFileSync(DATA_FILE, JSON.stringify({ notes: [], nextId: 1 }, null, 2));
+  }
+}
 
-// Create notes table if it doesn't exist
-db.exec(`
-  CREATE TABLE IF NOT EXISTS notes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    content TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  )
-`);
+// Read data from file
+function readData() {
+  try {
+    const data = fs.readFileSync(DATA_FILE, 'utf8');
+    return JSON.parse(data);
+  } catch (error) {
+    console.error('Error reading data:', error);
+    return { notes: [], nextId: 1 };
+  }
+}
 
-// Prepared statements
-const insertNote = db.prepare('INSERT INTO notes (title, content) VALUES (?, ?)');
-const selectAllNotes = db.prepare('SELECT * FROM notes ORDER BY created_at DESC LIMIT ? OFFSET ?');
-const selectNoteById = db.prepare('SELECT * FROM notes WHERE id = ?');
-const deleteNoteById = db.prepare('DELETE FROM notes WHERE id = ?');
-const updateNoteById = db.prepare('UPDATE notes SET title = ?, content = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?');
+// Write data to file
+function writeData(data) {
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+    return true;
+  } catch (error) {
+    console.error('Error writing data:', error);
+    return false;
+  }
+}
+
+// Initialize on startup
+initializeDataStore();
 
 // Routes
 
@@ -42,10 +64,17 @@ app.get('/health', (req, res) => {
 // Get all notes
 app.get('/api/notes', (req, res) => {
   try {
+    const data = readData();
     const skip = parseInt(req.query.skip) || 0;
     const limit = parseInt(req.query.limit) || 100;
-    const notes = selectAllNotes.all(limit, skip);
-    res.json(notes);
+    
+    // Sort by created_at descending and apply pagination
+    const sortedNotes = data.notes.sort((a, b) => 
+      new Date(b.created_at) - new Date(a.created_at)
+    );
+    const paginatedNotes = sortedNotes.slice(skip, skip + limit);
+    
+    res.json(paginatedNotes);
   } catch (error) {
     console.error('Error fetching notes:', error);
     res.status(500).json({ error: 'Failed to fetch notes' });
@@ -55,10 +84,14 @@ app.get('/api/notes', (req, res) => {
 // Get a single note
 app.get('/api/notes/:id', (req, res) => {
   try {
-    const note = selectNoteById.get(req.params.id);
+    const data = readData();
+    const noteId = parseInt(req.params.id);
+    const note = data.notes.find(n => n.id === noteId);
+    
     if (!note) {
       return res.status(404).json({ error: 'Note not found' });
     }
+    
     res.json(note);
   } catch (error) {
     console.error('Error fetching note:', error);
@@ -79,8 +112,23 @@ app.post('/api/notes', (req, res) => {
       return res.status(400).json({ error: 'Title must be 200 characters or less' });
     }
     
-    const result = insertNote.run(title, content);
-    const newNote = selectNoteById.get(result.lastInsertRowid);
+    const data = readData();
+    const now = new Date().toISOString();
+    
+    const newNote = {
+      id: data.nextId,
+      title: title.trim(),
+      content: content.trim(),
+      created_at: now,
+      updated_at: now
+    };
+    
+    data.notes.push(newNote);
+    data.nextId += 1;
+    
+    if (!writeData(data)) {
+      return res.status(500).json({ error: 'Failed to save note' });
+    }
     
     res.status(201).json(newNote);
   } catch (error) {
@@ -93,24 +141,34 @@ app.post('/api/notes', (req, res) => {
 app.put('/api/notes/:id', (req, res) => {
   try {
     const { title, content } = req.body;
-    const noteId = req.params.id;
+    const noteId = parseInt(req.params.id);
+    const data = readData();
     
-    const existingNote = selectNoteById.get(noteId);
-    if (!existingNote) {
+    const noteIndex = data.notes.findIndex(n => n.id === noteId);
+    if (noteIndex === -1) {
       return res.status(404).json({ error: 'Note not found' });
     }
     
-    const newTitle = title || existingNote.title;
-    const newContent = content || existingNote.content;
+    const note = data.notes[noteIndex];
     
-    if (newTitle.length > 200) {
-      return res.status(400).json({ error: 'Title must be 200 characters or less' });
+    if (title !== undefined) {
+      if (title.length > 200) {
+        return res.status(400).json({ error: 'Title must be 200 characters or less' });
+      }
+      note.title = title.trim();
     }
     
-    updateNoteById.run(newTitle, newContent, noteId);
-    const updatedNote = selectNoteById.get(noteId);
+    if (content !== undefined) {
+      note.content = content.trim();
+    }
     
-    res.json(updatedNote);
+    note.updated_at = new Date().toISOString();
+    
+    if (!writeData(data)) {
+      return res.status(500).json({ error: 'Failed to update note' });
+    }
+    
+    res.json(note);
   } catch (error) {
     console.error('Error updating note:', error);
     res.status(500).json({ error: 'Failed to update note' });
@@ -120,10 +178,18 @@ app.put('/api/notes/:id', (req, res) => {
 // Delete a note
 app.delete('/api/notes/:id', (req, res) => {
   try {
-    const result = deleteNoteById.run(req.params.id);
+    const noteId = parseInt(req.params.id);
+    const data = readData();
     
-    if (result.changes === 0) {
+    const noteIndex = data.notes.findIndex(n => n.id === noteId);
+    if (noteIndex === -1) {
       return res.status(404).json({ error: 'Note not found' });
+    }
+    
+    data.notes.splice(noteIndex, 1);
+    
+    if (!writeData(data)) {
+      return res.status(500).json({ error: 'Failed to delete note' });
     }
     
     res.status(204).send();
@@ -138,20 +204,8 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'static', 'index.html'));
 });
 
-// Graceful shutdown
-process.on('SIGINT', () => {
-  db.close();
-  process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-  db.close();
-  process.exit(0);
-});
-
 // Start server
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Notes app is running on http://localhost:${PORT}`);
   console.log(`📝 API available at http://localhost:${PORT}/api/notes`);
 });
-
