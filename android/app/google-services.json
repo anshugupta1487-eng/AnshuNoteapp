@@ -7,27 +7,27 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:76111886985:android:your_android_app_id",
+        "mobilesdk_app_id": "1:76111886985:android:59b07a42cf8226fe59e458",
         "android_client_info": {
           "package_name": "com.anshunoteapp"
         }
       },
       "oauth_client": [
         {
-          "client_id": "76111886985-your_oauth_client_id.apps.googleusercontent.com",
+          "client_id": "76111886985-2v9dn95fqqegrp2n82r3jnmqtbi3b2of.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyC45ZBtynCIoH2tBe-QKewVjyuLsBt-jVY"
+          "current_key": "AIzaSyBr3QOZSBOIm0QPCmeG36Eswl6G56cXnTo"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "76111886985-your_web_client_id.apps.googleusercontent.com",
+              "client_id": "76111886985-2v9dn95fqqegrp2n82r3jnmqtbi3b2of.apps.googleusercontent.com",
               "client_type": 3
             }
           ]
