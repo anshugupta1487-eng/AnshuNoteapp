@@ -27,9 +27,8 @@ class NoteEditorActivity : AppCompatActivity() {
     }
     
     private fun setupToolbar() {
-        setSupportActionBar(binding.appBarLayout)
-        supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.setDisplayShowHomeEnabled(true)
+        // Custom app bar - no need to set as support action bar
+        // The back navigation is handled by the layout
     }
     
     private fun setupNote() {
@@ -48,6 +47,10 @@ class NoteEditorActivity : AppCompatActivity() {
     private fun setupClickListeners() {
         binding.saveBtn.setOnClickListener {
             saveNote()
+        }
+        
+        binding.backBtn.setOnClickListener {
+            onBackPressed()
         }
     }
     

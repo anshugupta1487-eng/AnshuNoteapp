@@ -20,6 +20,18 @@
             android:layout_height="wrap_content"
             android:padding="16dp">
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/backBtn"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="←"
+                android:textSize="18sp"
+                android:padding="8dp"
+                android:minWidth="0dp"
+                app:backgroundTint="@android:color/transparent"
+                app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintStart_toStartOf="parent" />
+
             <TextView
                 android:id="@+id/titleText"
                 android:layout_width="0dp"
@@ -29,7 +41,7 @@
                 android:textStyle="bold"
                 android:textColor="@color/white"
                 app:layout_constraintTop_toTopOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintStart_toEndOf="@+id/backBtn"
                 app:layout_constraintEnd_toStartOf="@+id/saveBtn" />
 
             <com.google.android.material.button.MaterialButton
