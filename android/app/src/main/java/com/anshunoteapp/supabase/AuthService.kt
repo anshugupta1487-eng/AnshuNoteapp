@@ -17,7 +17,7 @@ class AuthService {
             // Sign in to Supabase using Firebase token
             supabase.signInWith(Email) {
                 email = firebaseUser.email ?: ""
-                password = idToken.token // Use Firebase token as password for Supabase
+                password = idToken.token ?: "" // Use Firebase token as password for Supabase
             }
             
             true

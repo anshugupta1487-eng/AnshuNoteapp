@@ -10,8 +10,8 @@ object SupabaseClient {
     
     // Replace these with your actual Supabase credentials
     // Get these from your Supabase project settings
-    private const val SUPABASE_URL = "https://your-project-id.supabase.co"
-    private const val SUPABASE_ANON_KEY = "your-anon-key"
+    const val SUPABASE_URL = "https://your-project-id.supabase.co"
+    const val SUPABASE_ANON_KEY = "your-anon-key"
     
     val client = createSupabaseClient(
         supabaseUrl = SUPABASE_URL,
