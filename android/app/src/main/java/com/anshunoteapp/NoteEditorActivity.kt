@@ -8,6 +8,8 @@ import com.anshunoteapp.data.Note
 import com.anshunoteapp.data.UpdateNoteRequest
 import com.anshunoteapp.databinding.ActivityNoteEditorBinding
 import com.anshunoteapp.network.ApiClient
+import com.anshunoteapp.supabase.NotesService
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.launch
 
 class NoteEditorActivity : AppCompatActivity() {
@@ -15,6 +17,8 @@ class NoteEditorActivity : AppCompatActivity() {
     private lateinit var binding: ActivityNoteEditorBinding
     private var note: Note? = null
     private var isEditing = false
+    private lateinit var notesService: NotesService
+    private lateinit var auth: FirebaseAuth
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -24,6 +28,7 @@ class NoteEditorActivity : AppCompatActivity() {
         setupToolbar()
         setupNote()
         setupClickListeners()
+        setupSupabase()
     }
     
     private fun setupToolbar() {
@@ -54,6 +59,11 @@ class NoteEditorActivity : AppCompatActivity() {
         }
     }
     
+    private fun setupSupabase() {
+        notesService = NotesService()
+        auth = FirebaseAuth.getInstance()
+    }
+    
     private fun saveNote() {
         val title = binding.noteTitle.text.toString().trim()
         val content = binding.noteContent.text.toString().trim()
@@ -78,32 +88,38 @@ class NoteEditorActivity : AppCompatActivity() {
         
         lifecycleScope.launch {
             try {
-                val response = if (isEditing && note != null) {
-                    ApiClient.apiService.updateNote(
-                        note!!.id,
-                        UpdateNoteRequest(title, content)
-                    )
-                } else {
-                    ApiClient.apiService.createNote(
-                        com.anshunoteapp.data.CreateNoteRequest(title, content)
-                    )
-                }
-                
-                if (response.isSuccessful) {
-                    val message = if (isEditing) {
-                        getString(R.string.note_updated)
+                val user = auth.currentUser
+                if (user != null) {
+                    val result = if (isEditing && note != null) {
+                        notesService.updateNote(
+                            note!!.id,
+                            UpdateNoteRequest(title, content),
+                            user.uid
+                        )
                     } else {
-                        getString(R.string.note_created)
+                        notesService.createNote(
+                            com.anshunoteapp.data.CreateNoteRequest(title, content),
+                            user.uid,
+                            user.email ?: ""
+                        )
                     }
-                    showMessage(message, Toast.LENGTH_SHORT)
-                    finish()
-                } else {
-                    val errorMessage = if (isEditing) {
-                        "Failed to update note: ${response.code()}"
+                    
+                    if (result != null) {
+                        val message = if (isEditing) {
+                            getString(R.string.note_updated)
+                        } else {
+                            getString(R.string.note_created)
+                        }
+                        showMessage(message, Toast.LENGTH_SHORT)
+                        finish()
                     } else {
-                        "Failed to create note: ${response.code()}"
+                        val errorMessage = if (isEditing) {
+                            "Failed to update note"
+                        } else {
+                            "Failed to create note"
+                        }
+                        showMessage(errorMessage, Toast.LENGTH_LONG)
                     }
-                    showMessage(errorMessage, Toast.LENGTH_LONG)
                 }
             } catch (e: Exception) {
                 val errorMessage = if (isEditing) {

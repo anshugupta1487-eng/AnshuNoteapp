@@ -11,6 +11,7 @@ import com.anshunoteapp.adapter.NotesAdapter
 import com.anshunoteapp.data.Note
 import com.anshunoteapp.databinding.ActivityMainBinding
 import com.anshunoteapp.network.ApiClient
+import com.anshunoteapp.supabase.NotesService
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
@@ -26,6 +27,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var auth: FirebaseAuth
     private lateinit var googleSignInClient: GoogleSignInClient
     private lateinit var notesAdapter: NotesAdapter
+    private lateinit var notesService: NotesService
     
     companion object {
         private const val RC_SIGN_IN = 9001
@@ -39,6 +41,7 @@ class MainActivity : AppCompatActivity() {
         setupFirebaseAuth()
         setupRecyclerView()
         setupClickListeners()
+        setupSupabase()
         
         // Check if user is already signed in
         if (auth.currentUser != null) {
@@ -90,6 +93,10 @@ class MainActivity : AppCompatActivity() {
         binding.createNoteBtn.setOnClickListener {
             createNote()
         }
+    }
+    
+    private fun setupSupabase() {
+        notesService = NotesService()
     }
     
     private fun signInWithGoogle() {
@@ -169,19 +176,14 @@ class MainActivity : AppCompatActivity() {
                 
                 val user = auth.currentUser
                 if (user != null) {
-                    val idToken = user.getIdToken(true).await()
-                    ApiClient.setAuthToken(idToken.token)
+                    // Use Firebase UID as the user_id for Supabase
+                    val userId = user.uid
+                    val notes = notesService.getNotes(userId)
                     
-                    val response = ApiClient.apiService.getNotes()
-                    if (response.isSuccessful) {
-                        val notes = response.body() ?: emptyList()
-                        notesAdapter.updateNotes(notes)
-                        
-                        if (notes.isEmpty()) {
-                            showEmptyState()
-                        }
-                    } else {
-                        showMessage("Failed to load notes: ${response.code()}", Toast.LENGTH_LONG)
+                    notesAdapter.updateNotes(notes)
+                    
+                    if (notes.isEmpty()) {
+                        showEmptyState()
                     }
                 }
             } catch (e: Exception) {
@@ -216,17 +218,22 @@ class MainActivity : AppCompatActivity() {
         
         lifecycleScope.launch {
             try {
-                val response = ApiClient.apiService.createNote(
-                    com.anshunoteapp.data.CreateNoteRequest(title, content)
-                )
-                
-                if (response.isSuccessful) {
-                    binding.noteTitle.text?.clear()
-                    binding.noteContent.text?.clear()
-                    showMessage(getString(R.string.note_created), Toast.LENGTH_SHORT)
-                    loadNotes()
-                } else {
-                    showMessage("Failed to create note: ${response.code()}", Toast.LENGTH_LONG)
+                val user = auth.currentUser
+                if (user != null) {
+                    val newNote = notesService.createNote(
+                        com.anshunoteapp.data.CreateNoteRequest(title, content),
+                        user.uid,
+                        user.email ?: ""
+                    )
+                    
+                    if (newNote != null) {
+                        binding.noteTitle.text?.clear()
+                        binding.noteContent.text?.clear()
+                        showMessage(getString(R.string.note_created), Toast.LENGTH_SHORT)
+                        loadNotes()
+                    } else {
+                        showMessage("Failed to create note", Toast.LENGTH_LONG)
+                    }
                 }
             } catch (e: Exception) {
                 showMessage("Error creating note: ${e.message}", Toast.LENGTH_LONG)
@@ -257,12 +264,15 @@ class MainActivity : AppCompatActivity() {
     private fun performDeleteNote(note: Note) {
         lifecycleScope.launch {
             try {
-                val response = ApiClient.apiService.deleteNote(note.id)
-                if (response.isSuccessful) {
-                    showMessage(getString(R.string.note_deleted), Toast.LENGTH_SHORT)
-                    loadNotes()
-                } else {
-                    showMessage("Failed to delete note: ${response.code()}", Toast.LENGTH_LONG)
+                val user = auth.currentUser
+                if (user != null) {
+                    val success = notesService.deleteNote(note.id, user.uid)
+                    if (success) {
+                        showMessage(getString(R.string.note_deleted), Toast.LENGTH_SHORT)
+                        loadNotes()
+                    } else {
+                        showMessage("Failed to delete note", Toast.LENGTH_LONG)
+                    }
                 }
             } catch (e: Exception) {
                 showMessage("Error deleting note: ${e.message}", Toast.LENGTH_LONG)
