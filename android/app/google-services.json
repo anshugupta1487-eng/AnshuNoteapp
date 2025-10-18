@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "76111886985",
+    "project_id": "notes-web-app-8bf56",
+    "storage_bucket": "notes-web-app-8bf56.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:76111886985:android:your_android_app_id",
+        "android_client_info": {
+          "package_name": "com.anshunoteapp"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "76111886985-your_oauth_client_id.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC45ZBtynCIoH2tBe-QKewVjyuLsBt-jVY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "76111886985-your_web_client_id.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
