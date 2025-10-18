@@ -93,12 +93,17 @@ class NotesService {
             connection.setRequestProperty("apikey", SupabaseClient.SUPABASE_ANON_KEY)
             connection.setRequestProperty("Authorization", "Bearer ${SupabaseClient.SUPABASE_ANON_KEY}")
             connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Prefer", "return=representation")
             connection.doOutput = true
+            
+            // Escape JSON properly
+            val escapedTitle = note.title.replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
+            val escapedContent = note.content.replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r")
             
             val requestBody = """
                 {
-                    "title": "${note.title}",
-                    "content": "${note.content}",
+                    "title": "$escapedTitle",
+                    "content": "$escapedContent",
                     "user_id": "$userId",
                     "user_email": "$userEmail"
                 }
@@ -107,25 +112,30 @@ class NotesService {
             connection.outputStream.bufferedWriter().use { it.write(requestBody) }
             
             val responseCode = connection.responseCode
-            if (responseCode == HttpURLConnection.HTTP_CREATED) {
-                val response = connection.inputStream.bufferedReader().use { it.readText() }
-                val jsonArray = json.parseToJsonElement(response).jsonArray
-                
-                if (jsonArray.isNotEmpty()) {
-                    val obj = jsonArray[0].jsonObject
-                    Note(
-                        id = obj["id"]?.jsonPrimitive?.content?.toInt() ?: 0,
-                        title = obj["title"]?.jsonPrimitive?.content ?: "",
-                        content = obj["content"]?.jsonPrimitive?.content ?: "",
-                        userId = obj["user_id"]?.jsonPrimitive?.content ?: "",
-                        userEmail = obj["user_email"]?.jsonPrimitive?.content ?: "",
-                        createdAt = obj["created_at"]?.jsonPrimitive?.content ?: "",
-                        updatedAt = obj["updated_at"]?.jsonPrimitive?.content ?: ""
-                    )
-                } else null
-            } else null
+            println("Supabase createNote response code: $responseCode")
+            
+            if (responseCode == HttpURLConnection.HTTP_CREATED || responseCode == HttpURLConnection.HTTP_OK) {
+                // If successful, create a dummy note object to indicate success
+                // The actual note will be fetched when the list refreshes
+                val dummyNote = Note(
+                    id = 0, // Will be updated when list refreshes
+                    title = note.title,
+                    content = note.content,
+                    userId = userId,
+                    userEmail = userEmail,
+                    createdAt = "", // Will be updated when list refreshes
+                    updatedAt = ""
+                )
+                println("Successfully created note (dummy response)")
+                return@withContext dummyNote
+            } else {
+                val errorResponse = connection.errorStream?.bufferedReader()?.use { it.readText() } ?: "No error details"
+                println("Supabase createNote error response: $errorResponse")
+                return@withContext null
+            }
         } catch (e: Exception) {
-            null
+            println("Supabase createNote exception: ${e.message}")
+            return@withContext null
         }
     }
     
